@@ -1,0 +1,2269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>班级合影照片名单校对数据管理系统</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.3.4/dist/vue.global.prod.js"></script>
+    <!-- face-api.js - 使用 SSD MobileNet v1 -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/dist/face-api.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Microsoft YaHei", "SimHei", sans-serif;
+        }
+        body {
+            background-color: #f0f0f0;
+            font-size: 14px;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* 顶部导航 */
+        .top-header {
+            background-color: #808080;
+            color: white;
+            padding: 5px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-shrink: 0;
+            font-size: 13px;
+        }
+        .top-header .system-title {
+            font-weight: bold;
+        }
+        .top-header .user-section {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        .top-header a {
+            color: white;
+            text-decoration: none;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        /* 班级标签栏 */
+        .class-tabs {
+            background-color: white;
+            padding: 8px 20px;
+            display: flex;
+            gap: 5px;
+            flex-shrink: 0;
+            border-bottom: 1px solid #ccc;
+        }
+        .class-tab {
+            padding: 4px 12px;
+            background-color: #c0c0c0;
+            border: none;
+            cursor: pointer;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+        .class-tab.active {
+            background-color: #0078d7;
+            color: white;
+        }
+
+        /* 主体布局 */
+        .main-container {
+            display: flex;
+            flex: 1;
+            overflow: auto;
+            padding: 0;
+            gap: 20px;
+            max-height: calc(100vh - 60px);
+        }
+
+        /* 左侧面板 */
+        .left-panel {
+            width: 280px;
+            background-color: white;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            overflow-y: auto;
+            flex-shrink: 0;
+            border: 1px solid #ccc;
+            margin: 10px 0 10px 10px;
+        }
+
+        /* 姓名粘贴区 */
+        .paste-section {
+            border-bottom: 1px solid #ccc;
+            padding-bottom: 10px;
+        }
+        .paste-title {
+            font-size: 13px;
+            font-weight: bold;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+        .paste-buttons {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-bottom: 8px;
+        }
+        .paste-btn {
+            padding: 4px 10px;
+            background-color: white;
+            border: 1px solid #ccc;
+            cursor: pointer;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .paste-btn.green {
+            background-color: #4CAF50;
+            color: white;
+            border-color: #4CAF50;
+        }
+        .paste-area {
+            width: 100%;
+            height: 80px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 6px;
+            font-size: 12px;
+            resize: none;
+            margin-bottom: 8px;
+            box-sizing: border-box;
+        }
+        .paste-area:focus {
+            outline: none;
+            border-color: #0078d7;
+        }
+        .paste-hint {
+            font-size: 10px;
+            color: #666;
+            text-align: center;
+        }
+
+        /* 已粘贴姓名区 */
+        .pasted-names-section {
+            flex: 1;
+            overflow-y: auto;
+            min-height: 150px;
+            display: flex;
+            position: relative;
+        }
+        .pasted-names-title {
+            font-size: 11px;
+            color: #666;
+            margin-bottom: 8px;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 25px;
+            z-index: 1;
+        }
+        .names-wrapper {
+            flex: 1;
+            overflow-y: auto;
+            padding-top: 20px;
+        }
+        .name-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            padding-bottom: 5px;
+        }
+        .name-tag {
+            background-color: #e8f0fe;
+            border: 1px solid #b8d4fe;
+            padding: 2px 6px;
+            font-size: 11px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.3s ease;
+        }
+        .name-tag:hover {
+            background-color: #d0e8ff;
+        }
+        .name-tag.highlight {
+            background-color: #86efac;
+            border-color: #4ade80;
+            color: #166534;
+        }
+        .name-tag .close-btn {
+            font-size: 12px;
+            color: #666;
+            cursor: pointer;
+        }
+        
+        /* 字母索引 */
+        .letter-index {
+            width: 20px;
+            background-color: #f8f9fa;
+            border-left: 1px solid #e9ecef;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px 2px 5px;
+            flex-shrink: 0;
+            overflow-y: auto;
+        }
+        .letter-item {
+            font-size: 10px;
+            color: #6c757d;
+            cursor: pointer;
+            padding: 1px 0;
+            line-height: 1.2;
+        }
+        .letter-item:hover {
+            color: #0078d7;
+            font-weight: bold;
+        }
+        .letter-item.active {
+            color: #166534;
+            background-color: #86efac;
+            font-weight: bold;
+            padding: 1px 3px;
+            border-radius: 2px;
+        }
+
+        /* 清空按钮 */
+        .clear-section {
+            display: flex;
+            justify-content: flex-end;
+        }
+        .clear-btn {
+            padding: 3px 8px;
+            background-color: white;
+            border: 1px solid #ccc;
+            cursor: pointer;
+            font-size: 11px;
+        }
+        .clear-btn.disabled,
+        .clear-btn:disabled {
+            background-color: #f0f0f0;
+            border-color: #ddd;
+            color: #999;
+            cursor: not-allowed;
+        }
+
+        /* 参数设置 */
+        .params-section {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            padding: 8px 0;
+            border-top: 1px solid #ccc;
+            border-bottom: 1px solid #ccc;
+        }
+        .param-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+        }
+        .param-label {
+            text-align: center;
+            line-height: 1.2;
+            font-size: 12px;
+        }
+        .param-btn {
+            width: 24px;
+            height: 24px;
+            border: 1px solid #ccc;
+            background-color: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .param-btn:hover:not(:disabled) {
+            background-color: #f0f0f0;
+        }
+        .param-btn:disabled {
+            background-color: #f5f5f5;
+            color: #999;
+            cursor: not-allowed;
+            border-color: #ddd;
+        }
+
+        /* 操作按钮区 */
+        .action-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .action-row {
+            display: flex;
+            gap: 8px;
+        }
+        .action-btn {
+            flex: 1;
+            padding: 6px 8px;
+            border: none;
+            cursor: pointer;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+        }
+        .action-btn.blue {
+            background-color: #0078d7;
+            color: white;
+        }
+        .action-btn.green {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .action-btn.gray {
+            background-color: #666;
+            color: white;
+        }
+        .action-btn.light-blue {
+            background-color: #e8f0fe;
+            color: #0078d7;
+            border: 1px solid #0078d7;
+        }
+        .action-hints {
+            font-size: 10px;
+            color: #666;
+            line-height: 1.4;
+            margin-top: 5px;
+        }
+
+        /* 右侧面板 - 整体布局 */
+        .right-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: white;
+            padding: 0;
+            border: none;
+            overflow: auto;
+            width: 100%;
+            align-items: center;
+            justify-content: flex-start;
+            padding-top: 0;
+            box-sizing: border-box;
+        }
+
+        /* 内容容器 - 固定尺寸1553x1200，支持缩放 */
+        .content-container {
+            width: 1553px;
+            height: 1200px;
+            display: flex;
+            flex-direction: column;
+            transform-origin: center center;
+            flex-shrink: 0;
+            margin-top: 0;
+            padding-bottom: 35px;
+            box-sizing: border-box;
+        }
+
+        /* 标题区 - 高76px */
+        .photo-title-section {
+            text-align: center;
+            flex-shrink: 0;
+            height: 76px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 20px;
+            box-sizing: border-box;
+            width: 1553px;
+        }
+        .photo-title {
+            font-size: 32px;
+            font-weight: bold;
+            color: #c00;
+            line-height: 60px;
+            text-align: center;
+            margin: 0;
+            width: 1024px;
+            height: 60px;
+        }
+        .photo-title input {
+            font-size: 32px;
+            font-weight: bold;
+            color: #c00;
+            border: none;
+            text-align: center;
+            background: transparent;
+            outline: none;
+            width: 1024px;
+            height: 60px;
+            line-height: 60px;
+            padding: 0;
+        }
+
+        /* 照片主体区 - 固定尺寸16:9 */
+        .photo-area {
+            display: block;
+            position: relative;
+            width: 1553px;
+            height: 873px;
+            overflow: hidden;
+            background-color: #fff;
+        }
+        .photo-placeholder {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #999;
+            z-index: 1;
+        }
+        .photo-placeholder i {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+        .uploaded-photo {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: center center;
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        .uploaded-photo.show {
+            display: block;
+        }
+        .face-box {
+            position: absolute;
+            border: 3px solid #ff4444;
+            cursor: pointer;
+            background: rgba(255, 68, 68, 0.15);
+            box-sizing: border-box;
+            z-index: 10;
+            transition: all 0.2s ease;
+        }
+        .face-box:hover {
+            border-color: #ff0000;
+            background: rgba(255, 0, 0, 0.25);
+            box-shadow: 0 0 10px rgba(255, 68, 68, 0.5);
+        }
+
+        /* 姓名排和二维码容器 - 底部信息区 */
+        .name-qrcode-wrapper {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0;
+            margin-top: 22px;
+            padding-top: 0;
+            border-top: none;
+            width: 1553px;
+            height: 220px;
+            padding-left: 62px;
+            padding-right: 25px;
+            padding-bottom: 20px;
+            box-sizing: border-box;
+        }
+
+        /* 姓名排区域 */
+        .name-rows-container {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex: 1;
+            width: 1110px;
+            height: 200px;
+            overflow: hidden;
+        }
+        .name-rows-container.compact {
+            gap: 3px;
+        }
+        .name-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 1;
+        }
+        .row-label {
+            color: #c00;
+            font-weight: bold;
+            font-size: 12px;
+            min-width: 40px;
+            text-align: right;
+            flex-shrink: 0;
+        }
+        .name-inputs {
+            display: flex;
+            gap: 10px;
+            flex-wrap: nowrap;
+            flex-shrink: 1;
+        }
+        .name-input {
+            width: calc((1110px - 50px) / 14);
+            min-width: 50px;
+            max-width: 80px;
+            height: 28px;
+            border: 1px solid #ccc;
+            text-align: center;
+            font-size: 14px;
+            outline: none;
+            padding: 0;
+            margin: 0;
+            line-height: 28px;
+            flex-shrink: 1;
+        }
+        .name-input:focus {
+            border-color: #0078d7;
+        }
+
+        /* 二维码区域 - 固定宽度120px */
+        .qrcode-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex-shrink: 0;
+            width: 120px;
+            margin-top: 10px;
+        }
+        .qrcode-image {
+            width: 100px;
+            height: 100px;
+        }
+        .photo-date {
+            font-size: 12px;
+            color: #000;
+            font-weight: normal;
+            text-align: center;
+            margin-top: 8px;
+            width: 120px;
+            height: 24px;
+            line-height: 24px;
+        }
+        .photo-date input {
+            font-size: 12px;
+            color: #000;
+            border: none;
+            background: transparent;
+            outline: none;
+            text-align: center;
+        }
+
+        /* 登录弹窗 */
+        .login-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .login-modal.show {
+            display: flex;
+        }
+        .login-box {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            width: 350px;
+        }
+        .input-wrapper {
+            position: relative;
+            margin-bottom: 15px;
+        }
+        .login-input {
+            width: 100%;
+            padding: 10px;
+            padding-right: 45px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .password-toggle {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: #666;
+            font-size: 18px;
+            user-select: none;
+        }
+        .password-toggle:hover {
+            color: #2563eb;
+        }
+        .login-btn {
+            width: 100%;
+            padding: 10px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .login-btn.register {
+            background: #16a34a;
+        }
+        .login-box-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .login-box-header h2 {
+            margin: 0;
+            font-size: 18px;
+        }
+        .close-modal-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #6b7280;
+            line-height: 1;
+            padding: 0;
+        }
+        .login-footer {
+            margin-top: 15px;
+            text-align: center;
+        }
+        .switch-mode-btn {
+            background: none;
+            border: none;
+            color: #2563eb;
+            cursor: pointer;
+            font-size: 12px;
+            padding: 0;
+            text-decoration: underline;
+        }
+        
+        /* 登录选项卡 */
+        .login-tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .login-tab {
+            flex: 1;
+            padding: 10px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            color: #6b7280;
+            position: relative;
+            margin-bottom: -1px;
+        }
+        .login-tab.active {
+            color: #2563eb;
+            font-weight: bold;
+        }
+        .login-tab.active::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: #2563eb;
+        }
+        
+        /* 微信扫码登录 */
+        .qr-login {
+            text-align: center;
+        }
+        .qr-code-wrapper {
+            margin-bottom: 20px;
+        }
+        .qr-code {
+            width: 150px;
+            height: 150px;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+        }
+        .qr-tip {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #6b7280;
+        }
+        .qr-confirm-btn {
+            width: 100%;
+            padding: 12px;
+            background: #07c160;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .qr-confirm-btn:hover {
+            background: #06ad56;
+        }
+        .qr-hint {
+            margin-top: 15px;
+            font-size: 12px;
+            color: #9ca3af;
+        }
+
+        /* 加载提示 */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255,255,255,0.9);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+        .loading-overlay.show {
+            display: flex;
+        }
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #e5e7eb;
+            border-top-color: #2563eb;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* 隐藏文件选择 */
+        #fileInput {
+            display: none;
+        }
+
+        /* 导出时隐藏照片框和姓名框线条 */
+        .exporting .photo-area {
+            border: none !important;
+            background: transparent !important;
+        }
+        .exporting .name-input {
+            border: none !important;
+            outline: none !important;
+            background: transparent !important;
+        }
+        .exporting .name-qrcode-wrapper {
+            border-top: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- 登录弹窗 -->
+        <div class="login-modal" :class="{ show: showLogin }">
+            <div class="login-box">
+                <div class="login-box-header">
+                    <h2>{{ isRegisterMode ? '用户注册' : '用户登录' }}</h2>
+                    <button class="close-modal-btn" @click="closeLogin">×</button>
+                </div>
+                
+                <!-- 切换登录方式 -->
+                <div class="login-tabs">
+                    <button class="login-tab" :class="{ active: !isQrMode }" @click="isQrMode = false">账号密码</button>
+                    <button class="login-tab" :class="{ active: isQrMode }" @click="isQrMode = true">微信扫码</button>
+                </div>
+                
+                <!-- 账号密码登录 -->
+                <div v-if="!isQrMode">
+                    <div v-if="isRegisterMode" style="background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 12px; margin-bottom: 15px;">
+                        <div style="font-size: 13px; color: #92400e; line-height: 1.5;">
+                            💡 <strong>提示：</strong>老师注册时请选择管理的班级号，建议使用手机号注册，以便联系沟通。
+                        </div>
+                    </div>
+                    <input type="text" class="login-input" v-model="loginUsername" :placeholder="isRegisterMode ? '用户名（建议手机号）' : '用户名'" style="margin-bottom: 15px;">
+                    <div class="input-wrapper">
+                        <input :type="showPassword ? 'text' : 'password'" class="login-input" v-model="loginPassword" placeholder="密码" @keyup.enter="isRegisterMode ? doRegister : doLogin">
+                        <span class="password-toggle" @click="showPassword = !showPassword">
+                            {{ showPassword ? '👁️' : '👁️‍🗨️' }}
+                        </span>
+                    </div>
+                    <div class="input-wrapper" v-if="isRegisterMode">
+                        <input :type="showPasswordConfirm ? 'text' : 'password'" class="login-input" v-model="loginPasswordConfirm" placeholder="确认密码">
+                        <span class="password-toggle" @click="showPasswordConfirm = !showPasswordConfirm">
+                            {{ showPasswordConfirm ? '👁️' : '👁️‍🗨️' }}
+                        </span>
+                    </div>
+                    <!-- 班级选择 -->
+                    <select v-if="isRegisterMode" class="login-input" v-model="registerClassId" style="padding: 12px;">
+                        <option value="">请选择您要管理的班级</option>
+                        <option v-for="cls in classList" :key="cls.id" :value="cls.id">
+                            {{ cls.name }}
+                        </option>
+                    </select>
+                    <button class="login-btn" :class="{ register: isRegisterMode }" @click="handleLoginClick">
+                        {{ isRegisterMode ? '注册' : '登录' }}
+                    </button>
+                    <div class="login-footer">
+                        <button class="switch-mode-btn" @click="toggleRegisterMode">
+                            {{ isRegisterMode ? '已有账号？去登录' : '没有账号？去注册' }}
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 微信扫码登录 -->
+                <div v-else class="qr-login">
+                    <div class="qr-code-wrapper">
+                        <img src="/public/wx-login-qr.jpg" alt="微信扫码登录" class="qr-code">
+                        <div class="qr-tip">扫码关注公众号</div>
+                    </div>
+                    <div style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+                        <div style="font-size: 14px; color: #065f46; font-weight: bold; margin-bottom: 8px;">📱 使用步骤：</div>
+                        <div style="font-size: 13px; color: #065f46; line-height: 1.6;">
+                            1. 扫码上方二维码关注"十堰摄影网"公众号<br>
+                            2. 关注后点击下方"已关注，登录系统"按钮<br>
+                            3. 登录成功后即可使用毕业合影管理系统
+                        </div>
+                    </div>
+                    <button class="qr-confirm-btn" @click="doWechatLogin">已关注，登录系统</button>
+                    <div class="qr-hint">如有问题请联系管理员</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 加载提示 -->
+        <div class="loading-overlay" :class="{ show: loading }">
+            <div>
+                <div class="loading-spinner"></div>
+                <div>{{ loadingText }}</div>
+            </div>
+        </div>
+
+        <!-- 顶部 -->
+        <div class="top-header">
+            <div class="system-title">班级合影照片名单校对数据管理系统</div>
+            <div class="user-section">
+                <span v-if="user">当前用户：{{ user.username }}</span>
+                <span v-else>当前用户：未登录</span>
+                <a v-if="user && user.role === 'admin'" @click="goToAdmin">
+                    <i>⚙️</i> 管理后台
+                </a>
+                <a v-if="user" @click="refreshSettings">
+                    <i>🔄</i> 刷新设置
+                </a>
+                <a v-if="user" @click="doLogout">退出登录</a>
+                <a v-else @click="showLogin = true">登录</a>
+            </div>
+        </div>
+
+        <!-- 班级标签 -->
+        <div class="class-tabs">
+            <button class="class-tab" :class="{ active: currentClassId === cls.id }" v-for="cls in classList" :key="cls.id" @click="selectClass(cls.id)">
+                {{ cls.name }}
+                <span v-if="user && user.managedClassId === cls.id" style="font-size:10px;color:#06ad56;margin-left:5px;">(我的班级)</span>
+            </button>
+        </div>
+        <!-- 编辑权限提示 -->
+        <div v-if="user" :style="{ textAlign: 'center', padding: '10px', fontSize: '14px', color: canEditCurrentClass ? '#06ad56' : '#f59e0b' }">
+            {{ canEditCurrentClass ? '✅ 您可以编辑当前班级' : '⚠️ 您只能查看当前班级' }}
+        </div>
+
+        <!-- 主体 -->
+        <div class="main-container">
+            <!-- 左侧 -->
+            <div class="left-panel">
+                <!-- 姓名粘贴区 -->
+                <div class="paste-section">
+                    <div class="paste-title">全体人员姓名数据粘贴区</div>
+                    <textarea class="paste-area" v-model="pasteText" :disabled="!canEditCurrentClass" placeholder="从Excel中复制姓名列后，粘贴到这里..."></textarea>
+                    <div class="paste-buttons">
+                        <button class="paste-btn green" @click="parsePastedNames" :disabled="!canEditCurrentClass">
+                            📥 导入Excel
+                        </button>
+                        <button class="paste-btn" @click="parsePastedNames" :disabled="!canEditCurrentClass">
+                            ✓ 处理粘贴
+                        </button>
+                        <button class="paste-btn" @click="clearPasteArea" :disabled="!canEditCurrentClass">
+                            🗑 清空
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 已粘贴姓名 -->
+                <div class="pasted-names-section">
+                    <div class="pasted-names-title">已粘贴的姓名（双击剪切到对应位置）</div>
+                    <div class="names-wrapper" ref="namesWrapper">
+                        <div class="name-tags">
+                            <div 
+                                class="name-tag" 
+                                v-for="(name, idx) in pastedNames" 
+                                :key="idx" 
+                                @click="canEditCurrentClass && fillName(idx)" 
+                                @dblclick="canEditCurrentClass && cutName(idx)"
+                                :class="{ 
+                                    highlight: highlightLetter && getPinyin(name).toUpperCase().startsWith(highlightLetter),
+                                    disabled: !canEditCurrentClass
+                                }"
+                                :style="{ opacity: canEditCurrentClass ? 1 : 0.5, cursor: canEditCurrentClass ? 'pointer' : 'not-allowed' }"
+                            >
+                                {{ name }}
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 字母索引 -->
+                    <div class="letter-index">
+                        <div 
+                            v-for="letter in letterIndex" 
+                            :key="letter" 
+                            class="letter-item" 
+                            :class="{ active: highlightLetter === letter }"
+                            @click="scrollToLetter(letter)"
+                        >
+                            {{ letter }}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="clear-section">
+                    <button class="clear-btn" @click="undo" :disabled="!canEditCurrentClass">撤消</button>
+                    <button class="clear-btn" @click="clearPastedNames" :disabled="!canEditCurrentClass">清空</button>
+                    <button class="clear-btn" :class="{ 'disabled': !isAdmin }" @click="clearAllNames" :disabled="!isAdmin" :title="!isAdmin ? '只有管理员可以操作' : ''">清空所有姓名</button>
+                </div>
+
+                <!-- 参数设置 -->
+                <div class="params-section">
+                    <div class="param-item">
+                        <span class="param-label">排数<br>设置</span>
+                        <button class="param-btn" @click="changeRowCount(-1)" :disabled="rowCount <= 1 || !isAdmin" :title="!isAdmin ? '只有管理员可以修改' : ''">-</button>
+                        <span>{{ rowCount }}</span>
+                        <button class="param-btn" @click="changeRowCount(1)" :disabled="!isAdmin" :title="!isAdmin ? '只有管理员可以修改' : ''">+</button>
+                    </div>
+                    <div class="param-item">
+                        <span class="param-label">每排<br>人数</span>
+                        <button class="param-btn" @click="changeColCount(-1)" :disabled="colCount <= 1 || !isAdmin" :title="!isAdmin ? '只有管理员可以修改' : ''">-</button>
+                        <span>{{ colCount }}</span>
+                        <button class="param-btn" @click="changeColCount(1)" :disabled="!isAdmin" :title="!isAdmin ? '只有管理员可以修改' : ''">+</button>
+                    </div>
+                </div>
+
+                <!-- 操作按钮 -->
+                <div class="action-buttons">
+                    <div class="action-row">
+                        <button class="action-btn blue" @click="triggerUpload" :disabled="!canEditCurrentClass">
+                            ⬆️ 上传照片
+                        </button>
+                        <button class="action-btn green" @click="runFaceDetect" :disabled="!canEditCurrentClass">
+                            🧍 人脸识别
+                        </button>
+                        <button class="action-btn gray" @click="exportPDF">
+                            📄 导出
+                        </button>
+                    </div>
+                    <div class="action-row">
+                        <button class="action-btn light-blue" @click="clearFaceBox" :disabled="!canEditCurrentClass">
+                            🗑️ 清除人脸框
+                        </button>
+                        <button class="action-btn blue" @click="saveData" :disabled="!canEditCurrentClass">
+                            💾 保存
+                        </button>
+                    </div>
+                    <div class="action-hints">
+                        提示：上传照片后，可进行人脸识别并标注姓名
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧 -->
+            <div class="right-panel">
+                <div class="content-container">
+                    <!-- 标题 -->
+                    <div class="photo-title-section">
+                        <div class="photo-title">
+                            <input type="text" v-model="photoTitle" @blur="autoSave">
+                        </div>
+                    </div>
+
+                    <!-- 照片 -->
+                    <div class="photo-area" @click="triggerUpload">
+                        <div class="photo-placeholder" v-if="!photoUrl">
+                            <i>☁️</i>
+                            <div>点击上传班级合影照片</div>
+                            <div style="font-size: 11px; margin-top: 5px;">支持横向照片，宽高比3:2</div>
+                        </div>
+                        <img id="mainPhoto" :src="photoUrl" class="uploaded-photo" :class="{ show: photoUrl }" @load="onPhotoLoad">
+                        <div class="face-box" v-for="(face, idx) in faceList" :key="idx" :style="getFaceStyle(face)" @click="selectFace(idx)"></div>
+                    </div>
+
+                    <!-- 姓名排和二维码 -->
+                    <div class="name-qrcode-wrapper">
+                    <!-- 姓名排 -->
+                        <div class="name-rows-container" :class="{ compact: rowCount > 4 }">
+                            <div class="name-row" v-for="(row, rIdx) in rowList" :key="rIdx">
+                            <div class="row-label">第{{ row.num }}排</div>
+                            <div class="name-inputs">
+                                <input type="text" class="name-input" v-for="(name, nIdx) in row.names" :key="nIdx" v-model="row.names[nIdx]" :disabled="!canEditCurrentClass" @dblclick="canEditCurrentClass && clearName(rIdx, nIdx)" @blur="canEditCurrentClass && autoSave" @focus="canEditCurrentClass && onNameFocus(rIdx, nIdx)">
+                            </div>
+                        </div>
+                        </div>
+
+                        <!-- 二维码 -->
+                        <div class="qrcode-section">
+                            <img src="/api/qrcode" class="qrcode-image" alt="二维码">
+                            <div class="photo-date">
+                                <input type="text" v-model="photoDate" @blur="autoSave">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <input type="file" id="fileInput" accept="image/*" @change="handleUpload">
+    </div>
+
+    <script>
+        const { createApp, ref, watch, computed, nextTick } = Vue;
+        createApp({
+            setup() {
+                // 基础状态
+                const user = ref(null);
+                const showLogin = ref(false);
+                const isRegisterMode = ref(false);
+                const isQrMode = ref(false);
+                const loginUsername = ref("");
+                const loginPassword = ref("");
+                const loginPasswordConfirm = ref("");
+                const registerClassId = ref(null);
+                const showPassword = ref(false);
+                const showPasswordConfirm = ref(false);
+                const loading = ref(false);
+                const loadingText = ref("加载中...");
+                const showAddClass = ref(false);
+
+                // 班级相关
+                const classList = ref([]);
+                const currentClassId = ref(null);
+
+                // 照片相关
+                const photoUrl = ref("");
+                const photoTitle = ref("");
+                const photoDate = ref("");
+                const photoData = ref(null);
+                const titleTemplate = ref("十堰市第一中学2026届高三({classNum})班师生毕业合影");
+
+                // 姓名排
+                const rowCount = ref(6);
+                const colCount = ref(15);
+                const rowList = ref([]);
+                const selectedNamePos = ref({ row: 0, col: 0 });
+
+                // 人脸识别
+                const faceList = ref([]);
+                const selectedFaceIndex = ref(-1);
+                let originalPhoto = null;
+                let modelsLoaded = false;
+                const faceBoxTrigger = ref(0);
+
+                // 姓名粘贴
+                const pasteText = ref("");
+                const pastedNames = ref([]);
+                const pastedCount = computed(() => pastedNames.value.length);
+                const history = ref([]); // 操作历史记录
+                
+                // 字母索引
+                const namesWrapper = ref(null);
+                const currentLetter = ref("");
+                const highlightLetter = ref("");
+                const letterIndex = computed(() => {
+                    const letters = [];
+                    for (let i = 65; i <= 90; i++) {
+                        letters.push(String.fromCharCode(i));
+                    }
+                    return letters;
+                });
+                
+                // 获取拼音首字母
+                const getPinyin = (name) => {
+                    if (!name || name.length === 0) return '';
+                    const char = name.charAt(0);
+                    // 使用简单的拼音首字母映射
+                    const pinyinMap = {
+                        'A': '啊阿锕腌哀埃挨哎唉爱碍安按暗岸肮昂凹敖熬翱袄傲奥',
+                        'B': '八巴扒吧笆拔把坝霸罢爸白柏百摆拜败稗斑班搬板版半伴办扮瓣邦帮绑榜膀棒磅包胞宝饱保堡报抱暴爆杯碑悲卑北辈背贝钡倍备惫被奔本苯笨崩绷甭泵蹦迸逼鼻比鄙笔彼碧蔽毕毙痹闭敝必辟壁臂避陛鞭边编贬扁便变卞辨辩辫标彪膘表鳖憋别瘪彬斌濒滨宾冰兵丙柄炳病玻波播伯帛泊勃博搏膊薄簸跛补捕不布步簿部怖',
+                        'C': '擦猜裁材才财采彩菜参餐蚕残惭惨灿苍舱仓沧藏操糙槽曹草厕策侧册测层蹭插叉茬茶查碴察差拆柴豺搀掺蝉馋缠产阐颤昌猖场尝常长偿肠厂敞畅唱倡超巢朝嘲潮吵炒车扯撤掣彻澈郴臣辰尘晨忱沉陈趁衬撑称城橙成呈承乘程惩澄诚逞骋秤吃痴池迟弛驰耻齿侈尺赤翅斥炽充冲虫崇宠抽酬畴踌稠愁筹仇绸瞅丑臭初出橱厨躇锄雏除楚础储矗搐触处揣川穿椽传船喘串疮窗幢床闯创吹垂锤春椿醇唇纯蠢戳绰疵雌辞慈磁瓷词此刺赐次聪葱囱匆从丛凑粗醋簇促篡窜摧催脆淬翠村存寸撮挫措错',
+                        'D': '搭达答瘩打大呆歹傣戴带殆代贷袋待逮怠丹单担胆旦氮但惮淡诞弹蛋当挡党荡档刀捣蹈倒岛祷导到稻悼道盗德得的蹬灯登等瞪凳邓低滴迪敌狄笛底抵地帝弟递第蒂缔颠掂滇点碘典靛垫电佃甸店惦奠殿雕刁叼凋碉吊钓调跌爹碟蝶叠丁盯叮钉顶鼎定订丢东冬董懂动栋洞兜抖斗陡豆逗痘都督毒独读堵睹杜肚度渡妒端短锻段断缎堆兑对队墩吨蹲敦顿盾遁多夺躲朵跺舵剁惰堕',
+                        'E': '峨鹅俄额恶扼遏鄂饿恩而儿耳尔二',
+                        'F': '发罚筏伐乏阀法珐帆番翻樊繁凡烦反返范贩犯饭泛坊芳方房防妨仿访纺放菲非飞肥匪吠肺废沸费芬吩纷坟焚汾粉份奋忿愤粪丰封枫峰锋风疯烽逢缝冯凤奉佛否夫敷肤扶芙福伏俘服浮符幅氟府俯辅甫抚腐父付负附妇富阜覆复腹傅缚',
+                        'G': '噶嘎该改概钙盖溉干甘杆肝赶感敢赣冈刚钢缸肛纲岗港杠高膏糕篙皋镐稿告哥歌搁戈鸽胳疙割革葛格隔个各给根跟耕更庚羹埂耿梗工攻功恭供宫躬公弓巩汞拱共钩沟苟狗构购够辜菇咕孤姑估鼓古骨谷股固故顾瓜刮寡挂褂乖拐怪棺关官冠观管馆惯灌光广逛归龟闺轨鬼癸桂柜贵滚棍锅郭国果裹过',
+                        'H': '哈海孩骸害酣憨邯韩含涵寒函喊罕汗汉夯航杭毫豪郝号好耗浩呵喝荷核禾和何合盒贺黑痕很狠恨哼亨横衡恒轰哄红宏洪鸿侯喉猴后厚候呼乎忽瑚胡壶葫蝴虎唬互户护花华哗滑画划化话槐怀淮坏欢环还缓换患幻荒慌黄磺簧皇凰惶煌晃幌灰挥辉徽回悔慧卉惠晦秽会汇讳诲绘昏婚魂混活伙火获或惑霍货',
+                        'J': '击鸡机肌饥迹激吉极急疾集籍及级即嫉棘脊己纪技系忌际妓季剂济寂寄加夹佳家嘉枷颊甲贾钾假稼价架驾嫁监坚尖笺间肩艰兼煎拣茧检简剪减荐槛鉴践见件建剑健舰渐溅江姜将浆僵疆蒋奖讲匠酱降蕉椒礁焦交浇骄娇嚼狡绞饺脚角觉校轿较叫窖接揭街皆结捷睫竭洁劫节杰截姐解戒芥界借介诫今金津筋斤襟紧锦仅谨进靳禁近晋烬浸京经茎荆菁精晶睛景警颈静境敬镜径痉竞竟净靖究纠玖韭久灸九酒厩救旧臼舅就拘狙疽居驹局菊橘举矩拒巨具距踞锯聚句惧剧据捐娟倦眷卷绢撅攫决诀抉掘倔爵觉绝均军君峻俊竣浚郡',
+                        'K': '卡开凯慨刊堪勘坎砍看康慷糠扛抗亢炕考烤靠坷苛柯棵颗科壳咳可渴克刻客课肯啃垦坑空孔恐控抠口扣寇枯哭苦库裤酷夸垮跨块快筷宽款匡筐狂框矿眶旷况亏盔窥葵魁馈愧溃坤昆捆困',
+                        'L': '拉啦喇腊辣来莱赖兰拦栏蓝婪揽览懒烂滥琅榔狼廊朗浪捞劳牢老佬姥酪烙涝勒乐雷镭蕾磊累冷厘梨犁黎篱离理里李礼莉荔吏栗丽厉励砾历沥例俐痢立粒力璃哩俩连帘怜莲联廉镰脸链恋炼练凉梁良量晾亮谅辆两撩聊僚疗燎廖料列裂烈劣猎林磷霖临邻鳞凛吝赁淋琳拎玲铃陵凌灵岭领另令溜琉流留刘柳六龙聋咙笼窿隆垄拢楼娄漏露卢芦炉颅掳卤虏鲁麓碌路鹿潞录陆戮驴吕铝旅履律虑率绿滤峦挛栾卵乱掠略轮伦论罗萝锣箩螺裸洛骆络落摞',
+                        'M': '妈麻马码玛骂嘛吗埋买麦卖迈脉瞒蛮满曼慢漫蔓忙芒茫盲氓猫毛矛铆卯茂冒帽貌么没梅霉煤眉媒美每昧妹媚门闷们萌蒙盟猛孟梦眯迷弥米秘觅密幂棉眠绵免勉面苗描秒渺庙妙蔑灭民抿敏悯明鸣铭名命摸模膜磨魔抹末莫墨默漠谋牟某拇母墓暮幕募木目牧睦穆',
+                        'N': '拿哪那娜纳钠乃奶耐奈南男难囊挠脑闹呢内嫩能妮霓倪泥尼拟你匿逆腻年念娘酿鸟尿捏聂孽啮镊镍涅您柠狞凝宁拧牛扭钮纽农浓弄奴努怒女',
+                        'O': '哦欧鸥偶呕藕沤',
+                        'P': '啪拍排牌派攀盘盼畔判叛乓庞旁耪胖抛泡炮袍跑佩配沛喷盆砰烹澎彭棚蓬碰捧坯披劈霹皮疲脾匹痞僻屁偏篇骗片飘漂瓢票撇瞥拼频贫品聘乒坪苹平凭瓶评屏坡泼婆破迫剖扑铺仆莆葡菩蒲埔朴普谱瀑曝',
+                        'Q': '期欺栖戚妻七凄漆齐旗祈祁骑起岂乞企启契砌器气迄弃汽泣掐恰牵钎铅千签仟迁谦乾黔钱钳前潜遣浅谴堑嵌欠歉枪呛腔羌墙蔷强抢橇锹敲悄乔侨桥瞧巧俏峭窍切茄且怯窃钦侵亲秦琴勤芹擒禽寝沁青轻氢倾卿清晴氰情顷请庆琼穷秋丘邱球求囚酋泅趋区曲屈驱渠取娶趣去圈权泉全醛痊拳犬券缺炔却鹊榷确雀裙群',
+                        'R': '然燃冉染瓤壤攘嚷让饶扰绕惹热壬仁忍韧任认刃妊纫扔日戎茸荣容融溶榕肉如儒乳汝入褥软阮蕊瑞锐闰润若弱',
+                        'S': '撒洒萨腮鳃塞赛三叁伞散桑嗓丧搔骚扫嫂瑟色森僧莎砂杀刹沙纱傻煞筛晒山删衫杉闪陕擅膳善扇缮墒伤商赏上尚裳梢捎稍烧勺韶少哨邵绍奢赊蛇舍涉摄射社设赦伸身深娠绅神沈审婶甚肾慎渗声生甥牲升绳省盛剩胜圣师失狮施湿诗尸时什食蚀实识史矢使屎始驶士氏世仕市示式事侍势视试饰室是柿适逝释誓收手守首寿授受瘦兽蔬疏舒书梳殊抒输叔淑枢薯束述树竖庶数墅漱刷耍摔甩帅栓拴霜双爽水睡税吮瞬顺舜说硕朔烁斯撕嘶思私司丝死肆寺嗣四似饲巳松耸怂颂送宋讼诵搜艘擞嗽苏酥俗素速粟塑溯宿诉肃酸算虽随绥碎岁穗遂隧祟孙损笋蓑梭锁所',
+                        'T': '他她它塌塔獭挞踏胎苔台抬太态泰贪摊滩瘫坛痰谭谈坦毯碳探叹炭汤塘堂棠膛唐糖倘躺淌趟烫掏涛滔绦桃逃陶淘讨套特藤疼腾梯剔踢提题蹄体替嚏天添田甜恬舔条调挑跳铁帖厅听烃汀廷亭庭停挺通桐铜童瞳同桶筒统痛偷头投透凸秃突图徒途涂屠土吐兔湍团推颓腿蜕褪吞屯臀拖托脱陀驼驮椭妥拓唾',
+                        'W': '哇挖蛙洼娃瓦歪外弯湾玩顽丸完晚挽碗皖宛婉万腕汪王亡枉网往旺望忘妄威微危韦违围唯为潍维伪位未味畏胃喂魏委萎伟伪尾卫谓尉慰温瘟文纹闻蚊吻稳问瓮挝蜗涡窝我卧握沃巫呜钨乌污诬屋无芜吴吾武五午舞伍侮坞雾物勿务悟误',
+                        'X': '昔熙西吸锡牺息希悉膝夕惜熄烯溪汐析习席袭媳喜铣洗系隙细瞎虾匣霞辖暇峡侠下夏厦仙先鲜纤咸贤衔舷闲弦显险现献县限线相厢镶香箱襄湘乡翔祥想响享项巷橡像向象萧硝销霄哮嚣晓小孝校笑效楔歇蝎协邪斜胁谐携鞋写泄泻谢屑心芯辛锌欣新薪信衅星腥猩惺兴刑形型行醒幸杏性姓兄凶胸雄熊休修羞朽嗅秀袖绣虚需须徐许蓄酗叙序絮婿绪续轩宣悬旋选癣眩绚薛学穴雪血勋熏循旬寻巡询驯殉讯逊迅',
+                        'Y': '压押鸦鸭呀芽牙衙涯雅亚咽烟阉淹盐严言颜延沿阎炎研岩演掩眼衍宴艳验雁燕央秧扬羊阳杨洋仰养样漾腰邀尧摇遥瑶药要耀椰爷也野冶业叶掖夜液一伊衣医依仪宜姨夷遗移疑乙已以倚蚁椅义亿艺忆亦役译易疫益谊逸毅翼臆因茵音阴银引饮隐印英樱婴鹰应缨萤营荧蝇迎盈影硬映永咏泳勇涌用幽优忧悠尤由犹油游友有右佑诱釉幼迂于余鱼娱渔渝愉逾瑜榆愚与予宇雨语玉域郁遇喻裕御愈欲狱育誉浴寓豫元园圆援远愿怨院袁原源缘猿辕月越跃粤云匀郧允运蕴晕韵孕',
+                        'Z': '匝砸杂载再在咱攒暂赞脏葬遭糟凿藻早枣澡躁造皂灶燥责择则泽咋乍诈榨窄债寨沾粘詹瞻毡占战站湛绽樟章漳张掌涨丈杖账仗胀障招昭找沼赵照罩肇折哲蛰辙者蔗这浙珍真针侦枕阵振震镇争征蒸挣睁筝整正证症郑芝枝知肢脂之织职直植值执侄指纸止趾旨只志制治智秩质炙致置中忠钟衷终种肿重仲众舟周州洲粥轴肘帚咒皱宙昼珠株朱猪诸竹烛煮拄瞩主著柱助蛀贮铸筑住注祝驻爪抓专砖转撰赚篆庄桩装壮状撞幢追锥坠缀谆准卓桌琢茁酌灼浊兹资姿滋子紫字自仔籽滓纵宗综棕踪鬃总走奏揍租足卒族祖阻组钻纂嘴醉最罪尊遵昨左佐做坐座'
+                    };
+                    for (const [letter, chars] of Object.entries(pinyinMap)) {
+                        if (chars.includes(char)) {
+                            return letter;
+                        }
+                    }
+                    // 如果找不到，返回原字符的ASCII码对应的字母或问号
+                    const code = char.charCodeAt(0);
+                    if (code >= 65 && code <= 90) return char.toUpperCase();
+                    if (code >= 97 && code <= 122) return char.toUpperCase();
+                    return '?';
+                };
+                
+                // 滚动到指定字母
+                const scrollToLetter = (letter) => {
+                    currentLetter.value = letter;
+                    highlightLetter.value = letter;
+                    if (!namesWrapper.value || !pastedNames.value.length) return;
+                    
+                    // 找到第一个以该字母开头的姓名
+                    const firstIndex = pastedNames.value.findIndex(name => {
+                        const pinyin = getPinyin(name);
+                        return pinyin && pinyin.toUpperCase().startsWith(letter);
+                    });
+                    
+                    if (firstIndex !== -1) {
+                        const itemHeight = 26; // 每个name-tag的高度
+                        const rows = Math.floor(firstIndex / 8); // 每行8个
+                        namesWrapper.value.scrollTop = rows * itemHeight;
+                    }
+                };
+
+                // 初始化排数 + 每排姓名框
+                const initRows = () => {
+                    let arr = [];
+                    for (let i = rowCount.value; i >= 1; i--) {
+                        let names = new Array(colCount.value).fill("");
+                        arr.push({ num: i, names });
+                    }
+                    rowList.value = arr;
+                };
+
+                // 排数变更
+                const changeRowCount = (delta) => {
+                    const newCount = rowCount.value + delta;
+                    if (newCount < 1) return;
+                    rowCount.value = newCount;
+                    if (delta > 0) {
+                        for (let i = 0; i < delta; i++) {
+                            let names = new Array(colCount.value).fill("");
+                            rowList.value.unshift({ num: rowList.value.length + 1, names });
+                        }
+                    } else {
+                        // 从最上面（数组开头）删除，保留下面的行
+                        // rowList数组顺序是从最上面到最下面，所以删除开头的元素
+                        rowList.value = rowList.value.slice(-newCount);
+                        // 更新行号，从1开始递增（最下面是第1排）
+                        rowList.value.forEach((row, idx) => {
+                            row.num = newCount - idx;
+                        });
+                    }
+                };
+
+                // 每排人数变更
+                const changeColCount = (delta) => {
+                    const newCount = colCount.value + delta;
+                    if (newCount < 1) return;
+                    colCount.value = newCount;
+                    rowList.value.forEach(row => {
+                        if (row.names.length < newCount) {
+                            while (row.names.length < newCount) {
+                                row.names.push("");
+                            }
+                        } else {
+                            row.names = row.names.slice(0, newCount);
+                        }
+                    });
+                };
+
+                // 照片上传
+                const triggerUpload = () => {
+                    if (!canEditCurrentClass.value) {
+                        alert("您只能编辑自己管理的班级！");
+                        return;
+                    }
+                    document.getElementById('fileInput').click();
+                };
+                const handleUpload = async (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+
+                    if (!canEditCurrentClass.value) {
+                        alert("您只能编辑自己管理的班级！");
+                        return;
+                    }
+
+                    if (!currentClassId.value) {
+                        alert("请先选择班级！");
+                        return;
+                    }
+
+                    loading.value = true;
+                    loadingText.value = "上传照片中...";
+
+                    const formData = new FormData();
+                    formData.append('photo', file);
+                    formData.append('classId', currentClassId.value);
+                    formData.append('title', photoTitle.value);
+                    formData.append('date', photoDate.value);
+
+                    try {
+                        const res = await fetch('/api/photos', {
+                            method: 'POST',
+                            credentials: 'include',
+                            body: formData
+                        });
+
+                        if (res.ok) {
+                            const url = URL.createObjectURL(file);
+                            photoUrl.value = url;
+                            await loadClassData(currentClassId.value);
+                            alert("照片上传成功！");
+                        } else {
+                            const err = await res.json();
+                            alert("上传失败：" + (err.error || "未知错误"));
+                        }
+                    } catch (err) {
+                        alert("上传失败：" + err.message);
+                    } finally {
+                        loading.value = false;
+                        e.target.value = "";
+                    }
+                };
+
+                const onPhotoLoad = () => {
+                    originalPhoto = document.getElementById('mainPhoto');
+                };
+
+                // 加载 face-api.js 模型
+                const loadFaceModels = async () => {
+                    if (modelsLoaded) return;
+                    loading.value = true;
+                    loadingText.value = "加载人脸识别模型...";
+                    try {
+                        console.log("开始加载模型...");
+                        // 使用本地模型
+                        const MODEL_URL = '/public/models';
+                        await faceapi.loadSsdMobilenetv1Model(MODEL_URL);
+                        modelsLoaded = true;
+                        console.log("成功加载模型！");
+                    } catch (err) {
+                        console.error("模型加载失败:", err);
+                        alert("模型加载失败。\n\n错误详情: " + err.message);
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                // 运行人脸识别
+                const runFaceDetect = async () => {
+                    if (!canEditCurrentClass.value) {
+                        alert("您只能编辑自己管理的班级！");
+                        return;
+                    }
+                    if (!photoUrl.value) {
+                        alert("请先上传照片！");
+                        return;
+                    }
+                    if (!originalPhoto) {
+                        originalPhoto = document.getElementById('mainPhoto');
+                    }
+
+                    await loadFaceModels();
+
+                    loading.value = true;
+                    loadingText.value = "识别人脸中...";
+
+                    try {
+                        console.log("开始检测人脸...");
+                        console.log("图像尺寸:", originalPhoto.naturalWidth, "x", originalPhoto.naturalHeight);
+                        
+                        // 直接在原图上检测，避免缩放导致坐标错位
+                        const detections = await faceapi.detectAllFaces(originalPhoto, new faceapi.SsdMobilenetv1Options({
+                            minConfidence: 0.65
+                        }));
+                        console.log("检测到的人脸数量:", detections.length);
+
+                        faceList.value = detections.map(d => {
+                            const box = d.box;
+                            console.log("原始人脸框:", box);
+                            return {
+                                x: box.x,
+                                y: box.y,
+                                width: box.width,
+                                height: box.height
+                            };
+                        });
+                        
+                        console.log("最终人脸列表:", faceList.value);
+
+                        if (photoData.value) {
+                            await fetch('/api/faces', {
+                                method: 'POST',
+                                credentials: 'include',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    photoId: photoData.value.id,
+                                    faces: faceList.value
+                                })
+                            });
+                        }
+
+                        alert("人脸识别完成，已标注" + faceList.value.length + "个人脸\n\n请按 F12 查看详细日志");
+                    } catch (err) {
+                        console.error(err);
+                        alert("人脸识别失败：" + err.message);
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                const getFaceStyle = (face) => {
+                    // 触发响应式更新
+                    faceBoxTrigger.value;
+                    if (!originalPhoto) return {};
+                    
+                    // 容器的固定尺寸
+                    const containerWidth = 1553;
+                    const containerHeight = 678;
+                    
+                    // 图片的原始尺寸
+                    const imgNaturalWidth = originalPhoto.naturalWidth;
+                    const imgNaturalHeight = originalPhoto.naturalHeight;
+                    
+                    // 计算缩放比例 (object-fit: contain)
+                    const scale = Math.min(
+                        containerWidth / imgNaturalWidth,
+                        containerHeight / imgNaturalHeight
+                    );
+                    
+                    // 图片的实际显示尺寸
+                    const imgDisplayWidth = imgNaturalWidth * scale;
+                    const imgDisplayHeight = imgNaturalHeight * scale;
+                    
+                    // 图片在容器中的偏移（居中）
+                    const imgOffsetX = (containerWidth - imgDisplayWidth) / 2;
+                    const imgOffsetY = (containerHeight - imgDisplayHeight) / 2;
+                    
+                    // 计算人脸框的位置和大小
+                    const left = imgOffsetX + (face.x * scale);
+                    const top = imgOffsetY + (face.y * scale);
+                    const width = face.width * scale;
+                    const height = face.height * scale;
+                    
+                    return {
+                        left: left + 'px',
+                        top: top + 'px',
+                        width: width + 'px',
+                        height: height + 'px'
+                    };
+                };
+
+                const selectFace = (idx) => {
+                    selectedFaceIndex.value = idx;
+                };
+
+                const clearFaceBox = async () => {
+                    if (!canEditCurrentClass.value) {
+                        alert("您只能编辑自己管理的班级！");
+                        return;
+                    }
+                    alert('clearFaceBox 函数被触发了！');
+                    console.log('开始清除人脸框...');
+                    console.log('photoData.value:', photoData.value);
+                    console.log('当前 faceList.value 长度:', faceList.value.length);
+                    
+                    faceList.value = [];
+                    selectedFaceIndex.value = -1;
+                    console.log('清除后 faceList.value 长度:', faceList.value.length);
+                    
+                    // 同时清除服务器上的人脸识别数据
+                    if (photoData.value) {
+                        try {
+                            console.log('调用服务器接口清除人脸数据，photoId:', photoData.value.id);
+                            
+                            // 先查看删除前的数据
+                            console.log('--- 查看删除前数据 ---');
+                            const beforeRes = await fetch('/api/faces/debug/' + photoData.value.id, { credentials: 'include' });
+                            console.log('beforeRes status:', beforeRes.status);
+                            const beforeText = await beforeRes.text();
+                            console.log('beforeData raw text:', beforeText);
+                            let beforeData;
+                            try {
+                                beforeData = JSON.parse(beforeText);
+                            } catch (e) {
+                                console.error('解析 beforeData 失败:', e);
+                            }
+                            console.log('beforeData:', beforeData);
+                            
+                            const res = await fetch('/api/faces', {
+                                method: 'POST',
+                                credentials: 'include',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    photoId: photoData.value.id,
+                                    faces: []
+                                })
+                            });
+                            const result = await res.json();
+                            console.log('服务器返回:', result);
+                            
+                            // 查看删除后的数据
+                            console.log('--- 查看删除后数据 ---');
+                            const afterRes = await fetch('/api/faces/debug/' + photoData.value.id, { credentials: 'include' });
+                            console.log('afterRes status:', afterRes.status);
+                            const afterText = await afterRes.text();
+                            console.log('afterData raw text:', afterText);
+                            let afterData;
+                            try {
+                                afterData = JSON.parse(afterText);
+                            } catch (e) {
+                                console.error('解析 afterData 失败:', e);
+                            }
+                            console.log('afterData:', afterData);
+                            
+                            alert('服务器清除成功！删除前: ' + JSON.stringify(beforeData) + '\n删除后: ' + JSON.stringify(afterData));
+                        } catch (err) {
+                            console.error('清除人脸识别数据失败:', err);
+                            alert('服务器清除失败！' + err.message);
+                        }
+                    } else {
+                        console.log('photoData.value 为空，无法调用服务器接口');
+                        alert('photoData 为空！');
+                    }
+                };
+
+                // 拼音排序函数
+                const sortByPinyin = (names) => {
+                    return [...names].sort((a, b) => {
+                        return a.localeCompare(b, 'zh-CN');
+                    });
+                };
+
+                // 解析粘贴姓名
+                const parsePastedNames = () => {
+                    if (!canEditCurrentClass.value) {
+                        alert("您只能编辑自己管理的班级！");
+                        return;
+                    }
+                    if (!pasteText.value.trim()) {
+                        alert("请先在上方粘贴框中粘贴Excel中的姓名数据！\n\n使用方法：\n1. 在Excel中选中姓名列\n2. 复制（Ctrl+C）\n3. 粘贴到上方文本框（Ctrl+V）\n4. 点击此按钮");
+                        return;
+                    }
+                    // 只按换行分隔姓名
+                    const names = pasteText.value
+                        .split(/[\n\r]+/)
+                        .map(n => n.trim())
+                        .filter(n => n.length > 0);
+                    
+                    names.forEach((name, index) => {
+                        // 跳过表头"姓名"
+                        if (index === 0 && name === "姓名") {
+                            return;
+                        }
+                        
+                        // 处理两个字的姓名，在中间添加全角空格
+                        let processedName = name;
+                        // 先移除所有半角和全角空格
+                        let cleanedName = name.replace(/[ 　]/g, '');
+                        // 如果是两个字，在中间添加全角空格
+                        if (cleanedName.length === 2) {
+                            processedName = cleanedName.charAt(0) + '　' + cleanedName.charAt(1);
+                        }
+                        
+                        if (!pastedNames.value.includes(processedName)) {
+                            pastedNames.value.push(processedName);
+                        }
+                    });
+                    
+                    // 按拼音排序
+                    pastedNames.value = sortByPinyin(pastedNames.value);
+                    
+                    // 更新当前字母索引
+                    if (pastedNames.value.length > 0) {
+                        currentLetter.value = getPinyin(pastedNames.value[0]).charAt(0).toUpperCase();
+                    }
+                    
+                    pasteText.value = '';
+                    
+                    if (names.length > 0) {
+                        alert(`成功导入 ${names.length > 0 && names[0] === "姓名" ? names.length - 1 : names.length} 个姓名！`);
+                    }
+                };
+
+                const clearPasteArea = () => {
+                    if (!canEditCurrentClass.value) {
+                        alert("您只能编辑自己管理的班级！");
+                        return;
+                    }
+                    pasteText.value = '';
+                };
+
+                const removeName = (idx) => {
+                    if (!canEditCurrentClass.value) {
+                        alert("您只能编辑自己管理的班级！");
+                        return;
+                    }
+                    pastedNames.value.splice(idx, 1);
+                };
+
+                const clearPastedNames = () => {
+                    if (!canEditCurrentClass.value) {
+                        alert("您只能编辑自己管理的班级！");
+                        return;
+                    }
+                    pastedNames.value = [];
+                    history.value = []; // 清空历史记录
+                };
+
+                const clearAllNames = () => {
+                    if (!isAdmin.value) {
+                        alert("只有管理员可以执行此操作！");
+                        return;
+                    }
+                    if (confirm("确定清空右侧姓名区所有姓名吗?")) {
+                        // 清空右侧姓名区（pastedNames）
+                        pastedNames.value = [];
+                        history.value = [];
+                        // 清空照片区域的姓名
+                        rowList.value.forEach(row => {
+                            row.names = row.names.map(() => "");
+                        });
+                        // 保存当前班级的空数据到数据库
+                        saveData();
+                    }
+                };
+
+                const findNextEmpty = (startRow = null, startCol = null) => {
+                    if (startRow !== null && startCol !== null) {
+                        // 从指定位置开始查找
+                        // 先找当前行 startCol 之后的位置
+                        for (let c = startCol; c < rowList.value[startRow].names.length; c++) {
+                            if (!rowList.value[startRow].names[c]) {
+                                return { row: startRow, col: c };
+                            }
+                        }
+                        // 再从当前行下方的行按顺序查找（从上面的行开始）
+                        for (let r = startRow - 1; r >= 0; r--) {
+                            for (let c = 0; c < rowList.value[r].names.length; c++) {
+                                if (!rowList.value[r].names[c]) {
+                                    return { row: r, col: c };
+                                }
+                            }
+                        }
+                        // 然后从当前行上方的行查找（如果有的话）
+                        for (let r = rowList.value.length - 1; r > startRow; r--) {
+                            for (let c = 0; c < rowList.value[r].names.length; c++) {
+                                if (!rowList.value[r].names[c]) {
+                                    return { row: r, col: c };
+                                }
+                            }
+                        }
+                        return null;
+                    } else {
+                        // 默认：先从第2排及以后查找（跳过第1排）
+                        for (let r = rowList.value.length - 2; r >= 0; r--) {
+                            for (let c = 0; c < rowList.value[r].names.length; c++) {
+                                if (!rowList.value[r].names[c]) {
+                                    return { row: r, col: c };
+                                }
+                            }
+                        }
+                        // 如果第2排及以后都满了，再从第1排查找
+                        for (let c = 0; c < rowList.value[rowList.value.length - 1].names.length; c++) {
+                            if (!rowList.value[rowList.value.length - 1].names[c]) {
+                                return { row: rowList.value.length - 1, col: c };
+                            }
+                        }
+                        return null;
+                    }
+                };
+
+                const fillName = (idx) => {
+                    if (!canEditCurrentClass.value) {
+                        alert("您只能编辑自己管理的班级！");
+                        return;
+                    }
+                    const name = pastedNames.value[idx];
+                    const pos = findNextEmpty(selectedNamePos.value.row, selectedNamePos.value.col);
+                    if (pos) {
+                        // 记录操作历史
+                        history.value.push({
+                            type: 'fill',
+                            name: name,
+                            row: pos.row,
+                            col: pos.col
+                        });
+                        rowList.value[pos.row].names[pos.col] = name;
+                        pastedNames.value.splice(idx, 1);
+                    } else {
+                        alert("没有空的姓名框了！");
+                    }
+                };
+
+                const cutName = (idx) => {
+                    if (!canEditCurrentClass.value) {
+                        alert("您只能编辑自己管理的班级！");
+                        return;
+                    }
+                    const name = pastedNames.value[idx];
+                    const oldName = rowList.value[selectedNamePos.value.row].names[selectedNamePos.value.col];
+                    // 记录操作历史
+                    history.value.push({
+                        type: 'cut',
+                        name: name,
+                        oldName: oldName,
+                        row: selectedNamePos.value.row,
+                        col: selectedNamePos.value.col
+                    });
+                    rowList.value[selectedNamePos.value.row].names[selectedNamePos.value.col] = name;
+                    pastedNames.value.splice(idx, 1);
+                };
+
+                const undo = () => {
+                    if (!canEditCurrentClass.value) {
+                        alert("您只能编辑自己管理的班级！");
+                        return;
+                    }
+                    if (history.value.length === 0) {
+                        alert("没有可撤消的操作！");
+                        return;
+                    }
+                    const lastOp = history.value.pop();
+                    if (lastOp.type === 'fill') {
+                        // 撤消填充操作
+                        rowList.value[lastOp.row].names[lastOp.col] = "";
+                        pastedNames.value.push(lastOp.name);
+                        pastedNames.value = sortByPinyin(pastedNames.value);
+                    } else if (lastOp.type === 'cut') {
+                        // 撤消剪切操作
+                        rowList.value[lastOp.row].names[lastOp.col] = lastOp.oldName;
+                        pastedNames.value.push(lastOp.name);
+                        pastedNames.value = sortByPinyin(pastedNames.value);
+                    } else if (lastOp.type === 'clear') {
+                        // 撤消清空操作
+                        rowList.value[lastOp.row].names[lastOp.col] = lastOp.name;
+                        // 从已粘贴姓名中移除
+                        const idx = pastedNames.value.indexOf(lastOp.name);
+                        if (idx !== -1) {
+                            pastedNames.value.splice(idx, 1);
+                        }
+                    }
+                };
+
+                const clearName = (row, col) => {
+                    if (!canEditCurrentClass.value) {
+                        alert("您只能编辑自己管理的班级！");
+                        return;
+                    }
+                    if (rowList.value[row].names[col]) {
+                        const name = rowList.value[row].names[col];
+                        // 记录操作历史
+                        history.value.push({
+                            type: 'clear',
+                            name: name,
+                            row: row,
+                            col: col
+                        });
+                        pastedNames.value.push(name);
+                        // 重新按拼音排序
+                        pastedNames.value = sortByPinyin(pastedNames.value);
+                        rowList.value[row].names[col] = "";
+                    }
+                };
+
+                const onNameFocus = (row, col) => {
+                    selectedNamePos.value = { row, col };
+                };
+
+                // 判断是否管理员
+                const isAdmin = computed(() => {
+                    return user.value && user.value.role === 'admin';
+                });
+
+                // 判断当前班级是否可以编辑
+                const canEditCurrentClass = computed(() => {
+                    if (!user.value) return false;
+                    if (user.value.role === 'admin') return true;
+                    if (user.value.managedClassId && user.value.managedClassId === currentClassId.value) {
+                        return true;
+                    }
+                    return false;
+                });
+
+                // 计算当前班级名称
+                const currentClassName = computed(() => {
+                    const cls = classList.value.find(c => c.id === currentClassId.value);
+                    return cls ? cls.name : "1班";
+                });
+
+                // 生成动态标题
+                const generateTitle = (className) => {
+                    // 提取班级号
+                    let classNum = className;
+                    const match = className.match(/(\d+)班/);
+                    if (match) {
+                        classNum = match[1];
+                    }
+                    return titleTemplate.value.replace('{classNum}', classNum);
+                };
+
+                // 班级相关
+                const selectClass = async (classId) => {
+                    currentClassId.value = classId;
+                    await loadClassData(classId);
+                };
+
+                const loadClassData = async (classId) => {
+                    loading.value = true;
+                    loadingText.value = "加载数据中...";
+                    try {
+                        const res = await fetch('/api/photos/' + classId, { credentials: 'include' });
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data) {
+                                photoData.value = data.photo;
+                                photoUrl.value = data.photo.file_path;
+                                // 如果数据库中有标题，使用数据库中的；否则自动生成
+                                if (data.photo.title) {
+                                    photoTitle.value = data.photo.title;
+                                } else {
+                                    const cls = classList.value.find(c => c.id === classId);
+                                    if (cls) {
+                                        photoTitle.value = generateTitle(cls.name);
+                                    }
+                                }
+                                photoDate.value = data.photo.date || photoDate.value;
+                                faceList.value = data.faces || [];
+
+                                if (data.names && data.names.length > 0) {
+                                    const rows = {};
+                                    let maxRow = 0, maxCol = 0;
+                                    data.names.forEach(n => {
+                                        if (!rows[n.row_index]) rows[n.row_index] = [];
+                                        rows[n.row_index][n.name_index] = n.name;
+                                        maxRow = Math.max(maxRow, n.row_index);
+                                        maxCol = Math.max(maxCol, n.name_index);
+                                    });
+
+                                    rowCount.value = maxRow + 1;
+                                    // 确保每排至少15人
+                                    colCount.value = Math.max(maxCol + 1, 15);
+
+                                    rowList.value = [];
+                                    for (let i = maxRow; i >= 0; i--) {
+                                        let names = [];
+                                        for (let j = 0; j < colCount.value; j++) {
+                                            names.push(rows[i] ? (rows[i][j] || "") : "");
+                                        }
+                                        // rowList的顺序是从最上面到最下面
+                                        // 例如：maxRow=5（共6排），i=5对应第6排，i=0对应第1排
+                                        rowList.value.push({ num: i + 1, names });
+                                    }
+                                } else {
+                                    initRows();
+                                }
+                            } else {
+                                photoData.value = null;
+                                photoUrl.value = "";
+                                // 没有数据时自动生成标题
+                                const cls = classList.value.find(c => c.id === classId);
+                                if (cls) {
+                                    photoTitle.value = generateTitle(cls.name);
+                                }
+                                photoDate.value = "2026.5.29";
+                                initRows();
+                            }
+                        }
+                    } catch (err) {
+                        console.error(err);
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                const loadClasses = async () => {
+                    try {
+                        const res = await fetch('/api/classes', { credentials: 'include' });
+                        if (res.ok) {
+                            classList.value = await res.json();
+                            if (classList.value.length > 0 && !currentClassId.value) {
+                                currentClassId.value = classList.value[0].id;
+                                await loadClassData(currentClassId.value);
+                            }
+                        }
+                    } catch (err) {
+                        console.error(err);
+                    }
+                };
+
+                const handleLoginClick = () => {
+                    console.log('handleLoginClick 被调用！');
+                    if (isRegisterMode.value) {
+                        doRegister();
+                    } else {
+                        doLogin();
+                    }
+                };
+                
+                // 登录
+                const doLogin = async () => {
+                    console.log('=== doLogin 开始 ===');
+                    console.log('loginUsername.value:', loginUsername.value);
+                    console.log('loginPassword.value:', loginPassword.value);
+                    
+                    if (!loginUsername.value || !loginPassword.value) {
+                        alert("请输入用户名和密码！");
+                        return;
+                    }
+
+                    loading.value = true;
+                    loadingText.value = "登录中...";
+
+                    try {
+                        const res = await fetch('/api/login', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            credentials: 'include',
+                            body: JSON.stringify({
+                                username: loginUsername.value,
+                                password: loginPassword.value
+                            })
+                        });
+
+                        if (res.ok) {
+                            const data = await res.json();
+                            user.value = data.user;
+                            showLogin.value = false;
+                            loginUsername.value = "";
+                            loginPassword.value = "";
+                            await loadClasses();
+                            alert("登录成功！");
+                        } else {
+                            const err = await res.json();
+                            alert("登录失败：" + (err.error || "未知错误"));
+                        }
+                    } catch (err) {
+                        alert("登录失败：" + err.message);
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                const closeLogin = () => {
+                    showLogin.value = false;
+                    isRegisterMode.value = false;
+                    loginUsername.value = "";
+                    loginPassword.value = "";
+                    loginPasswordConfirm.value = "";
+                };
+
+                const toggleRegisterMode = () => {
+                    isRegisterMode.value = !isRegisterMode.value;
+                    loginPassword.value = "";
+                    loginPasswordConfirm.value = "";
+                };
+                
+                // 微信扫码登录
+                const doWechatLogin = async () => {
+                    loading.value = true;
+                    loadingText.value = "微信登录中...";
+                    try {
+                        const res = await fetch('/api/wechat-login', {
+                            method: 'POST',
+                            credentials: 'include',
+                            headers: { 'Content-Type': 'application/json' }
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            if (data.success) {
+                                user.value = data.user;
+                                showLogin.value = false;
+                                isQrMode.value = false;
+                                alert("微信登录成功！");
+                            } else {
+                                alert("登录失败：" + (data.error || "未知错误"));
+                            }
+                        } else {
+                            const err = await res.json();
+                            alert("登录失败：" + (err.error || "未知错误"));
+                        }
+                    } catch (err) {
+                        alert("登录失败：" + err.message);
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                // 注册
+                const doRegister = async () => {
+                    if (!loginUsername.value || !loginPassword.value) {
+                        alert("请填写用户名和密码！");
+                        return;
+                    }
+                    if (!registerClassId.value) {
+                        alert("请选择您要管理的班级！");
+                        return;
+                    }
+                    if (loginPassword.value.length < 6) {
+                        alert("密码长度至少6位！");
+                        return;
+                    }
+                    if (loginPassword.value !== loginPasswordConfirm.value) {
+                        alert("两次密码不一致！");
+                        return;
+                    }
+
+                    loading.value = true;
+                    loadingText.value = "注册中...";
+
+                    try {
+                        const res = await fetch('/api/register', {
+                            method: 'POST',
+                            credentials: 'include',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                username: loginUsername.value,
+                                password: loginPassword.value,
+                                managedClassId: registerClassId.value
+                            })
+                        });
+
+                        if (res.ok) {
+                            const data = await res.json();
+                            user.value = data.user;
+                            showLogin.value = false;
+                            loginUsername.value = "";
+                            loginPassword.value = "";
+                            loginPasswordConfirm.value = "";
+                            registerClassId.value = null;
+                            await loadClasses();
+                            alert("注册成功！");
+                        } else {
+                            const err = await res.json();
+                            alert("注册失败：" + (err.error || "未知错误"));
+                        }
+                    } catch (err) {
+                        alert("注册失败：" + err.message);
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                const doLogout = () => {
+                    fetch('/api/logout', { method: 'POST', credentials: 'include' })
+                        .finally(() => {
+                            user.value = null;
+                        });
+                };
+
+                const goToAdmin = () => {
+                    window.location.href = '/admin';
+                };
+
+                // 自动保存
+                let saveTimeout = null;
+                const autoSave = () => {
+                    if (saveTimeout) {
+                        clearTimeout(saveTimeout);
+                    }
+                    saveTimeout = setTimeout(() => {
+                        saveData(false);
+                    }, 2000);
+                };
+
+                // 保存数据
+                const saveData = async (showAlert = true) => {
+                    if (!canEditCurrentClass.value) {
+                        if (showAlert) {
+                            alert("您只能编辑自己管理的班级！");
+                        }
+                        return;
+                    }
+                    if (!photoData.value || !currentClassId.value) {
+                        if (showAlert) {
+                            alert("请先上传照片！");
+                        }
+                        return;
+                    }
+
+                    try {
+                        const res = await fetch('/api/names', {
+                            method: 'POST',
+                            credentials: 'include',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                photoId: photoData.value.id,
+                                classId: currentClassId.value,
+                                title: photoTitle.value,
+                                date: photoDate.value,
+                                names: rowList.value.flatMap((row, rIdx) => {
+                                    // rowList的顺序是从最上面到最下面
+                                    // 例如：共6排，rowList[0]是第6排，rowList[5]是第1排
+                                    // 保存时需要反转：第1排保存为 row_index = 0，第6排保存为 row_index = 5
+                                    const actualRowIndex = rowList.value.length - 1 - rIdx;
+                                    return row.names.map((name, nIdx) => ({
+                                        row_index: actualRowIndex,
+                                        name_index: nIdx,
+                                        name: name
+                                    }));
+                                })
+                            })
+                        });
+
+                        if (showAlert) {
+                            if (res.ok) {
+                                alert("保存成功！");
+                            } else {
+                                const err = await res.json();
+                                alert("保存失败：" + (err.error || "未知错误"));
+                            }
+                        }
+                    } catch (err) {
+                        if (showAlert) {
+                            alert("保存失败：" + err.message);
+                        }
+                        console.error(err);
+                    }
+                };
+
+                // 导出PDF
+                const exportPDF = async () => {
+                    loading.value = true;
+                    loadingText.value = "正在导出...";
+                    
+                    // 保存原始body样式
+                    const originalBodyOverflow = document.body.style.overflow;
+                    const originalBodyMargin = document.body.style.margin;
+                    const originalBodyPadding = document.body.style.padding;
+                    
+                    try {
+                        const container = document.querySelector('.content-container');
+                        const rightPanel = document.querySelector('.right-panel');
+                        if (!rightPanel || !container) {
+                            alert("找不到导出内容！");
+                            return;
+                        }
+
+                        // 使用最新的标题模板重新生成标题
+                        if (currentClassId.value && titleTemplate.value) {
+                            const cls = classList.value.find(c => c.id === currentClassId.value);
+                            if (cls) {
+                                photoTitle.value = generateTitle(cls.name);
+                            }
+                        }
+
+                        // 先保存当前数据
+                        if (photoData.value) {
+                            await saveData(false);
+                        }
+
+                        // 导出前隐藏照片框和姓名框的线条
+                        container.classList.add('exporting');
+                        
+                        // 保存当前缩放状态
+                        const currentScale = getComputedStyle(container).transform;
+                        
+                        // 创建打印样式
+                        const printStyle = document.createElement('style');
+                        printStyle.id = 'print-style';
+                        printStyle.textContent = `
+                            @media print {
+                                @page {
+                                    size: 1553px 1034px;
+                                    margin: 0;
+                                    padding: 0;
+                                }
+                                
+                                body * {
+                                    visibility: hidden !important;
+                                }
+                                
+                                .content-container, .content-container * {
+                                    visibility: visible !important;
+                                }
+                                
+                                .content-container {
+                                    position: absolute !important;
+                                    left: 0 !important;
+                                    top: 0 !important;
+                                    width: 1553px !important;
+                                    height: 1034px !important;
+                                    transform: scale(1) !important;
+                                    padding-top: 35px !important;
+                                    padding-bottom: 0 !important;
+                                    margin: 0 !important;
+                                    z-index: 9999 !important;
+                                }
+                                
+                                body {
+                                    margin: 0 !important;
+                                    padding: 0 !important;
+                                    overflow: visible !important;
+                                }
+                            }
+                        `;
+                        document.head.appendChild(printStyle);
+                        
+                        // 临时调整容器样式准备打印
+                        container.style.transform = 'scale(1)';
+                        container.style.width = '1553px';
+                        container.style.height = '1034px';
+                        container.style.paddingTop = '35px';
+                        container.style.paddingBottom = '0';
+                        
+                        // 等待样式生效
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                        
+                        // 调用浏览器打印
+                        window.print();
+                        
+                        // 等待用户完成打印
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        
+                        // 清理打印样式
+                        const styleToRemove = document.getElementById('print-style');
+                        if (styleToRemove) {
+                            document.head.removeChild(styleToRemove);
+                        }
+                        
+                        // 恢复缩放
+                        applyScale();
+                        
+                        alert("导出完成！请在打印对话框中选择保存为PDF。");
+                    } catch (err) {
+                        console.error(err);
+                        alert("导出失败：" + err.message);
+                    } finally {
+                        // 恢复显示
+                        const rightPanel = document.querySelector('.right-panel');
+                        const container = document.querySelector('.content-container');
+                        if (rightPanel) rightPanel.classList.remove('exporting');
+                        
+                        // 恢复body样式
+                        document.body.style.overflow = originalBodyOverflow;
+                        document.body.style.margin = originalBodyMargin;
+                        document.body.style.padding = originalBodyPadding;
+                        
+                        loading.value = false;
+                        // 重新应用缩放
+                        setTimeout(applyScale, 100);
+                    }
+                };
+
+                // 加载系统设置
+                const loadSettings = async () => {
+                    try {
+                        const res = await fetch('/api/settings', { credentials: 'include' });
+                        if (res.ok) {
+                            const data = await res.json();
+                            titleTemplate.value = data.titleTemplate || titleTemplate.value;
+                            // 更新日期（总是使用最新的系统设置）
+                            if (data.defaultDate) {
+                                photoDate.value = data.defaultDate;
+                            }
+                            // 如果当前有选中的班级，更新标题
+                            if (currentClassId.value) {
+                                const cls = classList.value.find(c => c.id === currentClassId.value);
+                                if (cls) {
+                                    photoTitle.value = generateTitle(cls.name);
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        console.error('加载设置失败:', err);
+                    }
+                };
+
+                // 刷新系统设置
+                const refreshSettings = async () => {
+                    await loadSettings();
+                    alert('设置已刷新！');
+                };
+
+                // 检查登录状态
+                const checkSession = async () => {
+                    try {
+                        const res = await fetch('/api/session', { credentials: 'include' });
+                        if (res.ok) {
+                            const data = await res.json();
+                            user.value = data.user;
+                        }
+                    } catch (err) {
+                        console.error(err);
+                    }
+                    await loadSettings();
+                    await loadClasses();
+                };
+
+                // 整体缩放功能
+                const applyScale = () => {
+                    const container = document.querySelector('.content-container');
+                    const rightPanel = document.querySelector('.right-panel');
+                    if (!container || !rightPanel) return;
+                    
+                    const panelWidth = rightPanel.clientWidth;
+                    const panelHeight = rightPanel.clientHeight; // 不再减去margin-top
+                    const contentWidth = 1553;
+                    const contentHeight = 999;
+                    
+                    // 计算缩放比例，确保内容完整显示
+                    const scaleX = panelWidth / contentWidth;
+                    const scaleY = panelHeight / contentHeight;
+                    const scale = Math.min(scaleX, scaleY, 1); // 最大缩放比例为1
+                    
+                    container.style.transform = `scale(${scale})`;
+                    
+                    // 更新人脸框位置
+                    faceBoxTrigger.value++;
+                };
+
+                // 初始化
+                initRows();
+                checkSession();
+                
+                // 页面加载后应用缩放
+                setTimeout(() => {
+                    applyScale();
+                    window.addEventListener('resize', applyScale);
+                }, 100);
+
+                return {
+                    user, isAdmin, canEditCurrentClass, showLogin, isRegisterMode, isQrMode, loginUsername, loginPassword, loginPasswordConfirm, registerClassId, showPassword, showPasswordConfirm, loading, loadingText,
+                    classList, currentClassId, showAddClass,
+                    photoUrl, photoTitle, photoDate,
+                    rowCount, colCount, rowList,
+                    faceList,
+                    pasteText, pastedNames, pastedCount, namesWrapper, currentLetter, letterIndex, highlightLetter,
+                    triggerUpload, handleUpload, onPhotoLoad,
+                    runFaceDetect, getFaceStyle, selectFace, clearFaceBox,
+                    parsePastedNames, clearPasteArea, removeName, clearPastedNames,
+                    fillName, cutName, clearName, onNameFocus, undo,
+                    selectClass, changeRowCount, changeColCount,
+                    doLogin, doRegister, doLogout, closeLogin, toggleRegisterMode, doWechatLogin, handleLoginClick,
+                    autoSave, saveData, exportPDF, goToAdmin, refreshSettings,
+                    scrollToLetter, getPinyin, clearAllNames
+                };
+            }
+        }).mount("#app");
+    </script>
+</body>
+</html>

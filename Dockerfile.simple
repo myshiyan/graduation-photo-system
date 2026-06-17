@@ -1,0 +1,28 @@
+# ==============================
+# 极空间部署专用 - 最稳健版本
+# 单阶段构建，使用完整 node:18 镜像（含 gcc/make/python）
+# 优点: 兼容性最好，sqlite3 编译 100% 成功
+# 缺点: 镜像较大 (约 1GB)
+# ==============================
+FROM docker.mirrors.ustc.edu.cn/library/node:18
+
+WORKDIR /app
+
+# 复制 package 文件
+COPY package*.json ./
+
+# 安装生产依赖（完整镜像有 gcc/make/python，sqlite3 一定能编译）
+# --no-audit --no-fund 跳过审计，加速安装
+RUN npm install --omit=dev --no-audit --no-fund
+
+# 复制项目代码（.dockerignore 会排除 node_modules 等不必要文件）
+COPY . .
+
+# 确保必要目录存在
+RUN mkdir -p public/uploads data
+
+# 暴露端口
+EXPOSE 3000
+
+# 启动服务器（监听 0.0.0.0，Docker 必须）
+CMD ["node", "server.js"]

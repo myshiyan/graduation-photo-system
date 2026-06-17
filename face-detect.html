@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>合影人脸检测（解决坐标错位）</title>
+    <style>
+        body {
+            font-family: "Microsoft YaHei", sans-serif;
+            max-width: 1000px;
+            margin: 20px auto;
+            padding: 0 20px;
+        }
+        .container {
+            position: relative;
+            display: inline-block;
+            border: 1px solid #ccc;
+        }
+        #imageCanvas {
+            display: block;
+            max-width: 100%;
+            height: auto;
+        }
+        #status {
+            color: #333;
+            margin: 10px 0;
+        }
+        input[type="file"] {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <h2>合影人脸检测（解决框错位问题）</h2>
+    <div id="status">请上传合影照片...</div>
+    <input type="file" id="imageUpload" accept="image/*">
+    <div class="container">
+        <canvas id="imageCanvas"></canvas>
+    </div>
+
+    <!-- 引入 TensorFlow.js 和 BlazeFace -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.1.0/dist/blazeface.min.js"></script>
+
+    <script>
+        let model;
+        const canvas = document.getElementById('imageCanvas');
+        const ctx = canvas.getContext('2d');
+        const statusEl = document.getElementById('status');
+
+        // 加载 BlazeFace 模型
+        async function loadModel() {
+            statusEl.textContent = "正在加载模型...";
+            model = await blazeface.load({
+                maxFaces: 100, // 合影照片最多支持 100 张人脸
+                scoreThreshold: 0.3 // 降低阈值，减少漏检
+            });
+            statusEl.textContent = "模型加载完成，请上传合影照片";
+        }
+
+        // 上传图片并检测人脸
+        document.getElementById('imageUpload').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file || !model) return;
+
+            const img = new Image();
+            img.src = URL.createObjectURL(file);
+            img.onload = async () => {
+                statusEl.textContent = "正在检测人脸...";
+
+                // 设置 canvas 尺寸与原图一致（关键：避免缩放导致坐标错位）
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+
+                // 绘制原图
+                ctx.drawImage(img, 0, 0);
+
+                // 检测人脸（在原图尺寸上检测，保证坐标准确）
+                const faces = await model.estimateFaces(img, false);
+
+                // 绘制人脸框
+                ctx.strokeStyle = '#ff0000';
+                ctx.lineWidth = 8; // 粗框，方便在合影里看清
+                ctx.font = "48px Arial";
+                ctx.fillStyle = '#ff0000';
+
+                faces.forEach((face, index) => {
+                    const [x1, y1] = face.topLeft;
+                    const [x2, y2] = face.bottomRight;
+                    const width = x2 - x1;
+                    const height = y2 - y1;
+
+                    // 绘制矩形框
+                    ctx.strokeRect(x1, y1, width, height);
+
+                    // 可选：标注序号
+                    ctx.fillText(`${index + 1}`, x1, y1 - 10);
+                });
+
+                statusEl.textContent = `检测完成，共找到 ${faces.length} 张人脸`;
+            };
+        });
+
+        // 初始化加载模型
+        loadModel();
+    </script>
+</body>
+</html>

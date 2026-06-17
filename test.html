@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>登录测试</title>
+    <style>
+        body { padding: 50px; font-family: Arial, sans-serif; }
+        input { padding: 10px; margin: 5px; width: 200px; }
+        button { padding: 10px 30px; background: #0078d7; color: white; border: none; cursor: pointer; }
+        #result { margin-top: 20px; padding: 20px; background: #f0f0f0; }
+    </style>
+</head>
+<body>
+    <h1>登录功能测试</h1>
+    <div>
+        <input type="text" id="username" value="admin" placeholder="用户名">
+        <br>
+        <input type="password" id="password" value="admin123" placeholder="密码">
+        <br>
+        <button onclick="testLogin()">登录测试</button>
+    </div>
+    <div id="result"></div>
+
+    <script>
+        async function testLogin() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const resultDiv = document.getElementById('result');
+            
+            resultDiv.innerHTML = '正在登录...';
+            console.log('发送登录请求', { username, password });
+
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                console.log('响应状态:', res.status);
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    resultDiv.innerHTML = '<h3 style="color: green;">✅ 登录成功！</h3><pre>' + JSON.stringify(data, null, 2) + '</pre>';
+                } else {
+                    const err = await res.json();
+                    resultDiv.innerHTML = '<h3 style="color: red;">❌ 登录失败</h3><pre>' + JSON.stringify(err, null, 2) + '</pre>';
+                }
+            } catch (err) {
+                console.error('错误:', err);
+                resultDiv.innerHTML = '<h3 style="color: red;">❌ 发生错误</h3><pre>' + err.message + '</pre>';
+            }
+        }
+    </script>
+</body>
+</html>
